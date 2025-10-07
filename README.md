@@ -6,7 +6,6 @@ The **Smart Product Analyzer** is a full-stack web application that leverages AI
 
 This project demonstrates a powerful integration of a modern frontend, a robust backend, and AI-driven web scraping to create a smart, automated product intelligence tool.
 
-![image](https://github.com/Saucyyy8/Smart-Product-Analyzer/assets/99235736/91a38090-48b4-433b-821e-150654c6022e)
 
 ---
 
