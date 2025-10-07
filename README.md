@@ -1,5 +1,4 @@
 # Smart-Product-Manager
-# Smart Product Analyzer 🧠✨
 
 ![Java](https://img.shields.io/badge/Java-21-blue.svg)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.4-brightgreen)
