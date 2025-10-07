@@ -4,6 +4,7 @@ package com.project.Smart_Product_Analyzer.AuthService;
 import com.project.Smart_Product_Analyzer.entity.User;
 import com.project.Smart_Product_Analyzer.repository.UserRepository;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -35,11 +36,21 @@ public class UserService {
      * Registers a new user by encoding the password and saving to the database.
      */
     public User register(User user) {
-        if (user.getPassword() != null && !user.getPassword().isBlank()) {
-            user.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
-        } else {
-            user.setPassword(null); // allow null password (e.g., OAuth users created through admin/API)
+        User existingUser = userRepository.findByUsername(user.getUsername());
+
+        if (existingUser != null) {
+            // User exists. Check if it's an OAuth user without a password.
+            if (existingUser.getPassword() == null) {
+                // This is an OAuth user. Let's set their password.
+                existingUser.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
+                return userRepository.save(existingUser);
+            } else {
+                // This is a regular user who already has a password.
+                throw new BadCredentialsException("Username is already taken.");
+            }
         }
+        // New user, hash their password and save.
+        user.setPassword(bCryptPasswordEncoder.encode(user.getPassword()));
         return userRepository.save(user);
     }
 
@@ -50,13 +61,12 @@ public class UserService {
         Authentication authenticate
                 = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
-                        user.getUserName(), user.getPassword()
+                        user.getUsername(), user.getPassword()
                 )
         );
 
-        //var u = userRepository.findByUserName(user.getUserName());
         if(authenticate.isAuthenticated())
-            return jwtService.generateToken(user);
+            return jwtService.generateToken(user.getUsername());
         return "failure";
     }
 }

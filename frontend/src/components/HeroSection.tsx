@@ -1,7 +1,12 @@
-import { TrendingUp, ShieldCheck, Zap, Search } from "lucide-react";
+import { TrendingUp, ShieldCheck, Zap, Search, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const HeroSection = () => {
+interface HeroSectionProps {
+  username: string | null;
+  logout: () => void;
+}
+
+const HeroSection = ({ username, logout }: HeroSectionProps) => {
   const scrollToSearch = () => {
     const searchSection = document.getElementById('search-section');
     searchSection?.scrollIntoView({ behavior: 'smooth' });
@@ -11,6 +16,21 @@ const HeroSection = () => {
     <section className="relative overflow-hidden bg-gradient-to-br from-background via-muted/20 to-accent/10">
       {/* Background Pattern */}
       <div className="absolute inset-0 bg-grid-pattern opacity-5" />
+
+      {/* User Info and Logout */}
+      {username && (
+        <div className="absolute top-4 right-4 z-10">
+          <div className="flex items-center gap-4">
+            <span className="text-sm font-medium text-muted-foreground">
+              Welcome, <span className="font-bold text-foreground">{username}</span>
+            </span>
+            <Button variant="outline" size="sm" onClick={logout}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </Button>
+          </div>
+        </div>
+      )}
       
       <div className="container mx-auto px-4 py-20 lg:py-32">
         <div className="text-center max-w-4xl mx-auto">

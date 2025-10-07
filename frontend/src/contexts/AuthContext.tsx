@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 interface AuthContextType {
   isAuthenticated: boolean;
   token: string | null;
+  username: string | null;
   login: (token: string) => void;
   logout: () => void;
 }
@@ -12,20 +13,36 @@ export const AuthContext = createContext<AuthContextType | null>(null);
 
 const AUTH_TOKEN_KEY = 'authToken';
 
+// Helper function to parse JWT
+const parseJwt = (token: string) => {
+  try {
+    return JSON.parse(atob(token.split('.')[1]));
+  } catch (e) {
+    return null;
+  }
+};
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [token, setToken] = useState<string | null>(() => {
     return localStorage.getItem(AUTH_TOKEN_KEY);
   });
+  const [username, setUsername] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // This will handle the OAuth2 redirect with token
+    const storedToken = localStorage.getItem(AUTH_TOKEN_KEY);
+    if (storedToken) {
+      const decoded = parseJwt(storedToken);
+      if (decoded && decoded.sub) {
+        setUsername(decoded.sub);
+      }
+    }
+
     const handleOAuthRedirect = () => {
       const urlParams = new URLSearchParams(window.location.search);
       const tokenFromUrl = urlParams.get('token');
       
       if (tokenFromUrl) {
-        // Store the token and clean up the URL
         login(tokenFromUrl);
         const cleanUrl = window.location.origin + window.location.pathname;
         window.history.replaceState({}, document.title, cleanUrl);
@@ -38,6 +55,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = (newToken: string) => {
     localStorage.setItem(AUTH_TOKEN_KEY, newToken);
     setToken(newToken);
+    const decoded = parseJwt(newToken);
+    if (decoded && decoded.sub) {
+      setUsername(decoded.sub);
+    }
     navigate('/');
   };
 
@@ -53,6 +74,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       localStorage.removeItem(AUTH_TOKEN_KEY);
       setToken(null);
+      setUsername(null);
       navigate('/login');
     }
   };
@@ -62,6 +84,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       value={{
         isAuthenticated: !!token,
         token,
+        username,
         login,
         logout,
       }}

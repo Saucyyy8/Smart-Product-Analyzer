@@ -43,7 +43,7 @@ public class CustomUserDetails implements UserDetails {
      */
     @Override
     public String getUsername() {
-        return user.getUserName();
+        return user.getUsername();
     }
 
     // The following methods indicate the account is always valid and enabled.

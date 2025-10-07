@@ -6,6 +6,7 @@ import jakarta.persistence.*;
  * Entity representing a user in the database.
  */
 @Entity
+@Table(name = "user") // Explicitly mapping to the 'user' table
 public class User {
     // Unique identifier for the user
     @Id
@@ -13,7 +14,7 @@ public class User {
     private Integer id;
     // Username for authentication
     @Column(unique = true, nullable = false)
-    private String userName;
+    private String username;
     // Encrypted password
     @Column(nullable = true)
     private String password;
@@ -26,12 +27,12 @@ public class User {
         this.id = id;
     }
 
-    public String getUserName() {
-        return userName;
+    public String getUsername() {
+        return username;
     }
 
-    public void setUserName(String userName) {
-        this.userName = userName;
+    public void setUsername(String username) {
+        this.username = username;
     }
 
     public String getPassword() {

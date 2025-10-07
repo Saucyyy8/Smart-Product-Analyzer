@@ -72,7 +72,7 @@ public class AmazonScraperService {
                     String price = priceElement.getText().trim();
                     if (!price.isEmpty()) {
                         // Clean up the price text
-                        price = price.replaceAll("[^0-9,]", "").replace(",", "");
+
                         String priceWithCurrency = price + " INR";
                         log.debug("Extracted product price: {}", priceWithCurrency);
                         return priceWithCurrency;

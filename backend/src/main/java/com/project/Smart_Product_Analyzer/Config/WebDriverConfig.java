@@ -1,18 +1,19 @@
 package com.project.Smart_Product_Analyzer.Config;
 
-import io.github.bonigarcia.wdm.WebDriverManager;
 import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.chrome.ChromeDriver;
 import org.openqa.selenium.chrome.ChromeOptions;
+import org.openqa.selenium.remote.RemoteWebDriver;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.net.MalformedURLException;
+import java.net.URL;
 
 @Configuration
 public class WebDriverConfig {
 
     @Bean(destroyMethod = "quit")
-    public WebDriver webDriver() {
-        WebDriverManager.chromedriver().setup();
+    public WebDriver webDriver() throws MalformedURLException {
         ChromeOptions options = new ChromeOptions();
 
         // Headless mode
@@ -50,7 +51,8 @@ public class WebDriverConfig {
         options.addArguments("--disable-dev-shm-usage");
         options.addArguments("--disable-gpu");
         options.addArguments("--remote-debugging-port=9222");
-
-        return new ChromeDriver(options);
+        
+        // Connect to the remote Selenium container
+        return new RemoteWebDriver(new URL("http://browser:4444/wd/hub"), options);
     }
 }

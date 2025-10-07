@@ -1,0 +1,17 @@
+# Environment variables
+.env
+
+# IDE files
+.idea/
+.vscode/
+
+# Build outputs
+/backend/target/
+/frontend/dist/
+/frontend/node_modules/
+
+# Log files
+*.log
+
+# OS-specific
+.DS_Store

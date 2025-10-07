@@ -4,6 +4,7 @@ package com.project.Smart_Product_Analyzer.AuthService;
 import com.project.Smart_Product_Analyzer.entity.User;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import org.springframework.beans.factory.annotation.Value;
 import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -21,8 +22,9 @@ import java.util.function.Function;
 @Service
 public class JwtService {
 
-    // Secret key for signing JWT tokens
-    private String secretKey = null;
+    // Secret key for signing JWT tokens, injected from environment properties
+    @Value("${JWT_SECRET}")
+    private String secretKey;
 
     /**
      * Generates a JWT token for the given user.
@@ -34,7 +36,7 @@ public class JwtService {
                 .builder()
                 .claims()
                 .add(claims)
-                .subject(user.getUserName())
+                .subject(user.getUsername())
                 .issuer("DCB")
                 .issuedAt(new Date(System.currentTimeMillis()))
                 .expiration(new Date(System.currentTimeMillis()+ 60*10*1000))
@@ -67,16 +69,9 @@ public class JwtService {
      */
     private SecretKey generateKey() {
         byte[] decode
-                = Decoders.BASE64.decode(getSecretKey());
+                = Decoders.BASE64.decode(secretKey);
 
         return Keys.hmacShaKeyFor(decode);
-    }
-
-    /**
-     * Returns the secret key used for signing JWT tokens.
-     */
-    public String getSecretKey() {
-        return secretKey = "RqxPOuVfHoBA8Uq40MhJvfY6qEHOOWWvg6N9W9vt23s=";
     }
 
     /**
