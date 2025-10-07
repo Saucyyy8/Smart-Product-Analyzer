@@ -1,231 +1,141 @@
-# Smart-Product-Manager
+# Smart Product Analyzer
 
-![Java](https://img.shields.io/badge/Java-21-blue.svg)
-![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.4-brightgreen)
-![Spring AI](https://img.shields.io/badge/Spring%20AI-1.0.0-9cf)
-![Selenium](https://img.shields.io/badge/Selenium-4.10.0-green.svg)
+![React](https://img.shields.io/badge/React-18-blue.svg) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.6-brightgreen) ![Java](https://img.shields.io/badge/Java-21-orange.svg) ![Docker](https://img.shields.io/badge/Docker-Compose-blue)
 
-The **Smart Product Analyzer** accepts a product URL or a text description, automatically builds a targeted Amazon search, and scrapes the top results. It then analyzes this information, distinguishes the pros and cons, and recommends the best available product.
+The **Smart Product Analyzer** is a full-stack web application that leverages AI to transform natural language queries into detailed e-commerce product analyses. It can analyze products directly from an Amazon URL or intelligently search for a product based on a description, scrape the results, and deliver a comprehensive summary including pros, cons, a final verdict, and a rating.
 
-The **Smart Product Analyzer** is a sophisticated Spring Boot application that leverages AI to transform natural language queries into detailed e-commerce product analyses. It can analyze products directly from a URL or intelligently search for a product based on a description, scrape the results, and deliver a comprehensive summary including pros, cons, a final verdict, and a rating.
+This project demonstrates a powerful integration of a modern frontend, a robust backend, and AI-driven web scraping to create a smart, automated product intelligence tool.
 
-This project demonstrates a powerful integration of web scraping with Large Language Models (LLMs) to create a smart, automated product intelligence tool.
-
-
-https://github.com/user-attachments/assets/df39d72c-dc71-441c-b1c4-e207f626b3bf
-
+![image](https://github.com/Saucyyy8/Smart-Product-Analyzer/assets/99235736/91a38090-48b4-433b-821e-150654c6022e)
 
 ---
 
 ## 🚀 Core Features
 
-* **Dual-Mode Analysis**: Analyze a product either by providing a direct **URL** or a natural language **text description** (e.g., "a good mechanical keyboard under 5000").
-* **AI-Powered Search**: Utilizes an AI model (via Ollama and Spring AI) to parse text descriptions into structured search criteria (keywords, brand, price range).
-* **Automated Web Scraping**: Employs Selenium WebDriver to scrape Amazon product pages for names, prices, and customer reviews, with robust anti-detection configurations.
-* **Intelligent Review Summarization**: Gathers product reviews and uses an AI prompt to generate a concise list of **Pros**, **Cons**, a final **Verdict**, and a calculated **Rating** out of 10.
-* **RESTful API**: Provides clean, easy-to-use endpoints for initiating product analysis.
-* **Resilient & Extensible**: Features custom exception handling for scraping and AI service failures, making the application robust and easy to debug.
-
----
-
-## ⚙️ How It Works
-
-The application has two primary workflows, both accessible via the API.
-
-#### 1. Analyze by URL
-
-This is the direct approach. You provide an Amazon product URL, and the service scrapes and analyzes it.
-
-
-```
-1. POST /analyze/url with an Amazon URL.
-2. `AmazonScraperService` scrapes the product's name, price, and reviews.
-3. `AiService` summarizes the reviews into pros, cons, a verdict, and a rating.
-4. The final `Product` object is returned as JSON.
-```
-
-#### 2. Analyze by Description (The Smart Search)
-
-This is the advanced, AI-driven workflow. You provide a text query, and the application finds and analyzes the best matching product.
-
-
-```
-1. POST /analyze/description with a text query (e.g., "logitech mouse for gaming").
-2. `ProductService` sends the query to `AiService`.
-3. `AiService` uses the `searchQueryPrompt.txt` template to ask the LLM to extract keywords, brand, and price.
-4. `ProductService` builds a precise Amazon search URL based on the AI's response.
-5. `AmazonSearchPageScraper` scrapes all product links from the search results page.
-6. `ProductService` iterates through the links, scrapes each one, and uses the AI-generated rating to identify the "best" product.
-7. The best `Product` object is returned as JSON.
-```
+*   **Modern & Responsive UI**: A clean user interface built with React, TypeScript, and Shadcn UI.
+*   **Secure Authentication**: Supports both email/password registration and OAuth2 login (Google & GitHub).
+*   **Dual-Mode Analysis**: Analyze a product either by providing a direct **URL** or a natural language **text description**.
+*   **AI-Powered Search**: Uses an AI model (Ollama `llama3`) to parse text descriptions into structured search criteria.
+*   **Automated Web Scraping**: Employs Selenium WebDriver in a Docker container to scrape Amazon for product details and reviews.
+*   **Intelligent Review Summarization**: Gathers reviews and uses an AI prompt to generate a concise list of **Pros**, **Cons**, a **Verdict**, and a **Rating**.
+*   **Containerized**: The entire application stack is containerized with Docker Compose for easy setup and consistent deployment.
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Component             | Technology / Library                                                                |
-| --------------------- | ----------------------------------------------------------------------------------- |
-| **Backend Framework** | Spring Boot 3.5.4                                                                   |
-| **Language** | Java 21                                                                             |
-| **AI Integration** | Spring AI 1.0.0 (with Ollama)                                                       |
-| **Web Scraping** | Selenium WebDriver 4.10.0, WebDriverManager 6.2.0                                   |
-| **API** | Spring Web (REST Controllers)                                                       |
-| **Utilities** | Lombok, Jackson                                                                     |
-| **Build Tool** | Maven                                                                               |
-| **Exceptions** | Custom exceptions (`ScrapingException`, `ProductNotFound`, etc.) |
-| **Cache** | Caffeine |
-
----
-
-## 📋 Prerequisites
-
-Before you begin, ensure you have the following installed:
-
-* **Java Development Kit (JDK) 21** or later.
-* **Apache Maven**.
-* **Git**.
-* **Ollama**: The application is configured to connect to a local Ollama instance. You must have Ollama running with a model downloaded.
-    * [Download Ollama](https://ollama.com/)
-    * Pull the required model:
-        ```bash
-        ollama pull llama3
-        ```
+| Component | Technology / Library |
+| --- | --- |
+| **Frontend** | React, Vite, TypeScript, Tailwind CSS, Shadcn UI |
+| **Backend** | Spring Boot, Java 21, Spring Security, Spring Data JPA, Spring AI |
+| **Database** | MySQL 8.0 |
+| **AI & Scraping** | Ollama (`llama3`), Selenium WebDriver |
+| **Authentication** | JWT, OAuth2 (Google & GitHub) |
+| **Containerization** | Docker, Docker Compose |
+| **Build Tool** | Maven |
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Clone the Repository
-```bash
-git clone [https://github.com/Saucyyy8/Smart-Product-Manager.git](https://github.com/Saucyyy8/Smart-Product-Manager.git)
-cd Smart-Product-Manager
-```
+This project is fully containerized, so you only need Git and Docker to get it running. No local Java, Node, or MySQL installation is required.
 
-### 2. Configure the Application
-The core configuration is in `src/main/resources/application.properties`. By default, it's set to connect to Ollama on `localhost:11434` and use the `llama3:latest` model.
+### Prerequisites
 
-```properties
-# App name
-spring.application.name=productAnalyzer
-spring.ai.ollama.base-url=http://localhost:11434
+*   **Git**
+*   **Docker Desktop**
 
-# Specify the Ollama model to be used by the ChatClient.
-spring.ai.ollama.chat.model=llama3:latest
+### Installation & Setup
 
-# Optional: You can configure model-specific parameters like temperature.
-spring.ai.ollama.chat.options.temperature=0.7
+1.  **Clone the Repository**
 
-#Added cache
+    ```bash
+    git clone https://github.com/Saucyyy8/Smart-Product-Analyzer.git
+    cd Smart-Product-Analyzer
+    ```
 
-spring.cache.cache-names=Product
-spring.cache.caffeine.spec=expireAfterAccess=60m
+2.  **Create the Environment File**
 
-```
+    Create a `.env` file by copying the example file. This file will store all your secrets.
 
-### 3. Run the Application
-Make sure your Ollama application is running. Then, start the Spring Boot application using Maven:
+    ```bash
+    cp .env.example .env
+    ```
 
-```bash
-mvn spring-boot:run
-```
-The application will start on `http://localhost:8080`.
+3.  **Configure Your Secrets**
+
+    Open the newly created `.env` file and fill in your actual secrets for the database password, JWT, and OAuth2 credentials. See the **Environment Variables** section below for details.
+
+4.  **Build and Run with Docker Compose**
+
+    This single command will build the custom images for the frontend, backend, and Ollama, and start all the services.
+
+    ```bash
+    docker-compose up --build -d
+    ```
+
+    > **Note:** The first build will take several minutes as it downloads the `llama3` model (a few gigabytes) into the Ollama service image.
+
+5.  **Access the Application**
+
+    Once all containers are running, the application will be available at:
+
+    *   **Frontend:** [http://localhost:3000](http://localhost:3000)
+    *   **Backend API:** [http://localhost:8080](http://localhost:8080)
 
 ---
 
-## 📚 API Endpoints
+## 🔑 Environment Variables
 
-The API is defined in `ProductController.java`.
+Your `.env` file is crucial for running the application. It must contain the following variables:
 
-### Health Check
-
-Verifies that the service is running.
-
-* **URL:** `/product/health`
-* **Method:** `GET`
-* **Success Response (200 OK):**
-    ```
-    Smart Product Analyzer Running
-    ```
-
-### Analyze Product (Generic)
-
-A single endpoint that intelligently handles both URL and text description inputs.
-
-* **URL:** `/product/analyze`
-* **Method:** `POST`
-* **Request Body (`ProductAnalysisRequest`):**
-    * For URL Analysis:
-        ```json
-        {
-          "input": "[https://www.amazon.in/dp/B08XYZ123](https://www.amazon.in/dp/B08XYZ123)",
-           "type": "url"
-        }
-        ```
-    * For Description Analysis:
-        ```json
-        {
-          "input": "A quiet mechanical keyboard from logitech",
-           "type": "description"
-        }
-        ```
-* **Success Response (200 OK):**
-    Returns a `Product` object.
-    ```json
-    {
-        "name": "Logitech MX Mechanical Wireless Keyboard",
-        "price": "14999 INR",
-        "url": "[https://www.amazon.in/Logitech-Mechanical-Wireless-Keyboard-Graphite/dp/B07S92QBC2](https://www.amazon.in/Logitech-Mechanical-Wireless-Keyboard-Graphite/dp/B07S92QBC2)",
-        "pros": [
-            "Excellent build quality and feels premium.",
-            "Typing experience is quiet and satisfying.",
-            "Long battery life and reliable wireless connectivity."
-        ],
-        "cons": [
-            "The price is on the higher side.",
-            "Not ideal for gaming due to standard polling rates."
-        ],
-        "verdict": "A top-tier productivity keyboard that is worth the investment for professionals.",
-        "rating": 8.75
-    }
-    ```
-* **Error Response (500 Internal Server Error):**
-    ```json
-    {
-        "timestamp: ": "2025-08-09T12:00:00.000Z",
-        "HttpStatus :": 505,
-        "error :": "Internal Server Error",
-        "message :": "Exception message details..."
-    }
-    ```
+| Variable | Description |
+| --- | --- |
+| `SPRING_DATASOURCE_USERNAME` | The username for the MySQL database. Defaults to `root`. |
+| `SPRING_DATASOURCE_PASSWORD` | The password for the MySQL database. **Must match `MYSQL_ROOT_PASSWORD`**. |
+| `JWT_SECRET` | A long, random, Base64-encoded string used for signing JWT tokens. |
+| `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_ID` | Your Google OAuth2 Client ID. |
+| `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENT_SECRET` | Your Google OAuth2 Client Secret. |
+| `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GITHUB_CLIENT_ID` | Your GitHub OAuth2 Client ID. |
+| `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GITHUB_CLIENT_SECRET` | Your GitHub OAuth2 Client Secret. |
+| `MYSQL_ROOT_PASSWORD` | The root password for the MySQL container. **Must match `SPRING_DATASOURCE_PASSWORD`**. |
 
 ---
 
-## 🧠 AI Prompts
+## 🐳 Docker Services
 
-A key part of this project is how it instructs the AI model. The prompts are stored in the `src/main/resources/prompts/` directory.
+The `docker-compose.yml` file orchestrates the following 5 services:
 
-### `searchQueryPrompt.txt`
+1.  `frontend`: Serves the React application using Nginx.
+2.  `backend`: Runs the Spring Boot application.
+3.  `db`: A MySQL database instance for data persistence.
+4.  `browser`: A standalone Selenium Chrome container for web scraping, accessible by the backend.
+5.  `ollama`: A custom Ollama service that comes with the `llama3` model pre-installed.
 
-This prompt instructs the LLM to act as a text processor and extract structured search criteria from a user's free-form text.
+---
 
+## 🔒 Security: JWT & OAuth2
+
+Authentication is handled by Spring Security.
+
+*   **Local Authentication**: Users can register with an email and password. Upon successful login, the backend issues a JWT.
+*   **OAuth2 Authentication**: Users can log in via Google or GitHub. After a successful OAuth2 flow, the backend creates a user record and issues a JWT.
+*   **JWT Usage**: The frontend stores the JWT and sends it in the `Authorization` header for all subsequent requests to secure API endpoints.
+
+---
+
+## 🛑 Stopping the Application
+
+To stop all running containers and remove the network, run:
+
+```bash
+docker-compose down
 ```
-You are a text processing bot. Your task is to extract search criteria from a user's query and format it into a strict 5-line output.
-...
-User Query: {query}
-```
 
-### `productAnalyzer.txt`
+To also delete the database and Ollama model data (for a complete reset), add the `--volumes` flag:
 
-This prompt takes a collection of scraped reviews and asks the LLM to summarize them into a structured analysis.
-
-```
-I have a product from Amazon with the following reviews:
-{reviews}
-Please analyze these reviews and provide the following information in this exact format:
-PROS:- [list each pro...]
-CONS:- [list each con...]
-VERDICT:-[one-line verdict...]
-RATING:-[rating out of 10...]
+```bash
+docker-compose down --volumes
 ```
 
 ---
