@@ -2,7 +2,7 @@
 
 ![React](https://img.shields.io/badge/React-18-blue.svg) ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.5.6-brightgreen) ![Java](https://img.shields.io/badge/Java-21-orange.svg) ![Docker](https://img.shields.io/badge/Docker-Compose-blue)
 
-The **Smart Product Analyzer** is a full-stack web application that leverages AI to transform natural language queries into detailed e-commerce product analyses. It can analyze products directly from an Amazon URL or intelligently search for a product based on a description, scrape the results, and deliver a comprehensive summary including pros, cons, a final verdict, and a rating.
+The **Smart Product Analyzer** is a full-stack web application that leverages AI to transform natural language queries into detailed e-commerce product analyses. It can suggest products just by name with the help of web scraping and analyzes products directly from an Amazon URL or intelligently search for a product based on a description, scrape the results, and deliver a comprehensive summary including pros, cons, a final verdict, and a rating.
 
 This project demonstrates a powerful integration of a modern frontend, a robust backend, and AI-driven web scraping to create a smart, automated product intelligence tool.
 
