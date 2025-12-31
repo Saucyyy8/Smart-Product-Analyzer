@@ -25,7 +25,8 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Configures Spring Security for the application, including JWT filter and endpoint security.
+ * Configures Spring Security for the application, including JWT filter and
+ * endpoint security.
  */
 @Configuration
 @EnableWebSecurity
@@ -37,14 +38,16 @@ public class WebSecurityConfig {
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
 
-    public WebSecurityConfig(UserDetailsService userDetailsService, JwtAuthenticationFilter jwtAuthenticationFilter, OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler) {
+    public WebSecurityConfig(UserDetailsService userDetailsService, JwtAuthenticationFilter jwtAuthenticationFilter,
+            OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler) {
         this.userDetailsService = userDetailsService;
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.oAuth2AuthenticationSuccessHandler = oAuth2AuthenticationSuccessHandler;
     }
 
     /**
-     * Configures the security filter chain, disables CSRF, sets endpoint permissions, and adds JWT filter.
+     * Configures the security filter chain, disables CSRF, sets endpoint
+     * permissions, and adds JWT filter.
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity httpSecurity) throws Exception {
@@ -53,13 +56,18 @@ public class WebSecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(
                         request -> request
+                                .dispatcherTypeMatchers(jakarta.servlet.DispatcherType.ASYNC).permitAll() // Allow async
+                                                                                                          // dispatch
+                                                                                                          // (SSE)
                                 .requestMatchers("/api/auth/**", "/login",
                                         "/oauth2/**",
-                                        "/login/oauth2/**").permitAll()
-                                .anyRequest().authenticated()
-                )
+                                        "/login/oauth2/**")
+                                .permitAll()
+                                .anyRequest().authenticated())
                 .httpBasic(Customizer.withDefaults())
-                .oauth2Login(oauth -> oauth.successHandler(oAuth2AuthenticationSuccessHandler)) // Enables OAuth2 login and issues JWT on success
+                .oauth2Login(oauth -> oauth.successHandler(oAuth2AuthenticationSuccessHandler)) // Enables OAuth2 login
+                                                                                                // and issues JWT on
+                                                                                                // success
                 .addFilterBefore(jwtAuthenticationFilter,
                         UsernamePasswordAuthenticationFilter.class);
         return httpSecurity.build();
@@ -69,7 +77,7 @@ public class WebSecurityConfig {
     CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of("http://localhost:3000"));
-        configuration.setAllowedMethods(Arrays.asList("GET","POST", "PUT", "DELETE", "OPTIONS"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
@@ -77,21 +85,18 @@ public class WebSecurityConfig {
         return source;
     }
 
-
-    //@Bean
+    // @Bean
     public UserDetailsService userDetailsService() {
-        UserDetails shabbir
-                = User.withUsername("shabbir")
+        UserDetails shabbir = User.withUsername("shabbir")
                 .password("{noop}password")
                 .roles("USER")
                 .build();
 
-        UserDetails nikhil
-                = User.withUsername("nikhil")
+        UserDetails nikhil = User.withUsername("nikhil")
                 .password("{noop}nikhil")
                 .roles("USER")
                 .build();
-        return new InMemoryUserDetailsManager(shabbir,nikhil);
+        return new InMemoryUserDetailsManager(shabbir, nikhil);
     }
 
     @Bean
@@ -101,18 +106,16 @@ public class WebSecurityConfig {
 
     @Bean
     public AuthenticationProvider authenticationProvider() {
-        DaoAuthenticationProvider provider
-                = new DaoAuthenticationProvider();
+        DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
         provider.setUserDetailsService(userDetailsService);
-        //provider.setPasswordEncoder(NoOpPasswordEncoder.getInstance());
+        // provider.setPasswordEncoder(NoOpPasswordEncoder.getInstance());
         provider.setPasswordEncoder(bCryptPasswordEncoder());
         return provider;
     }
 
     @Bean
     public AuthenticationManager authenticationManager(
-            AuthenticationConfiguration configuration
-    ) throws Exception {
+            AuthenticationConfiguration configuration) throws Exception {
         return configuration.getAuthenticationManager();
     }
 }

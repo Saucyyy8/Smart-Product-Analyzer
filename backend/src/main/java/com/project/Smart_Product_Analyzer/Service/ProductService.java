@@ -1,20 +1,30 @@
 package com.project.Smart_Product_Analyzer.Service;
 
-
-import com.project.Smart_Product_Analyzer.Exception.AiServiceException;
 import com.project.Smart_Product_Analyzer.Exception.InvalidUrlException;
 import com.project.Smart_Product_Analyzer.Exception.ProductNotFound;
 import com.project.Smart_Product_Analyzer.Exception.ScrapingException;
 import com.project.Smart_Product_Analyzer.Model.Product;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import com.project.Smart_Product_Analyzer.Model.ProductAnalysisRequest;
+import java.io.IOException;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import com.project.Smart_Product_Analyzer.repository.ProductHistoryRepository;
+import com.project.Smart_Product_Analyzer.entity.ProductHistory;
+import com.project.Smart_Product_Analyzer.entity.User;
+import com.project.Smart_Product_Analyzer.repository.UserRepository;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.Authentication;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -23,117 +33,224 @@ public class ProductService {
     private final AmazonScraperService scraperService;
     private final AmazonSearchPageScraper searchScraperService;
     private final AiService aiService;
-
+    private final Executor taskExecutor;
+    private final ProductHistoryRepository productHistoryRepository;
+    private final UserRepository userRepository;
 
     @Autowired
-    public ProductService(AmazonScraperService scraperService, AmazonSearchPageScraper searchScraperService, AiService aiService) {
+    public ProductService(AmazonScraperService scraperService,
+            AmazonSearchPageScraper searchScraperService,
+            AiService aiService,
+            @Qualifier("taskExecutor") Executor taskExecutor,
+            ProductHistoryRepository productHistoryRepository,
+            UserRepository userRepository) {
         this.scraperService = scraperService;
         this.searchScraperService = searchScraperService;
         this.aiService = aiService;
+        this.taskExecutor = taskExecutor;
+        this.productHistoryRepository = productHistoryRepository;
+        this.userRepository = userRepository;
     }
+
     @Cacheable("Product")
-    public Product analyzeProduct(String productDescription) {
-        log.info("Starting product analysis for description: {}", productDescription);
+    public List<Product> analyzeProduct(String productDescription) {
+        return analyzeProductInternal(productDescription, null);
+    }
+
+    private List<Product> analyzeProductInternal(String productDescription, String username) {
+        log.info("Starting optimized product analysis for description: {}", productDescription);
+
+        // Step 0: Check Cache (History)
+        List<Product> cachedProduct = checkHistoryCache(productDescription);
+        if (cachedProduct != null && !cachedProduct.isEmpty()) {
+            log.info("Found cached product analysis for: {}", productDescription);
+            return cachedProduct;
+        }
 
         try {
+            // Reverted: Use AI for URL Generation as per user request
+            List<String> searchUrls = aiService.generateSearchUrls(productDescription);
 
-            SearchCriteria criteria = parseProductDescription(productDescription);
-
-            String searchUrl = buildSearchUrl(criteria, productDescription);
-            log.debug("Built search URL: {}", searchUrl);
-
-            // Try to get product links from search
-            List<String> productLinks ;
-            boolean used = false;
-
-            try {
-                productLinks = searchScraperService.scrapeAmazonOnUrl(searchUrl);
-
-                // If no products found and we have price filters, try without price filters
-                if (productLinks.isEmpty() && (criteria.getPriceMin() !=null || criteria.getPriceMax()!= null)) {
-                    log.info("No products found with price filters, trying without price filters...");
-                    SearchCriteria newCriteria = new SearchCriteria();
-                    newCriteria.setKeywords(criteria.getKeywords());
-                    newCriteria.setBrand(criteria.getBrand());
-                    newCriteria.setSort(criteria.getSort());
-
-                    String newUrl = buildSearchUrl(newCriteria, productDescription);
-                    log.debug("Built fallback search URL: {}", newUrl);
-
-                    try {
-                        productLinks = searchScraperService.scrapeAmazonOnUrl(newUrl);
-                        used =true;
-                        log.info("Fallback search successful, found {} products", productLinks.size());
-                    }
-                    catch (ProductNotFound fallbackException) {
-                        log.warn("Fallback search also failed: {}", fallbackException.getMessage());
-                        throw new ProductNotFound("No products found even without price restrictions");
-                    }
-                }
-
+            if (searchUrls.isEmpty()) {
+                throw new ProductNotFound("AI failed to generate any valid search URLs.");
             }
-            catch (ProductNotFound e) {
-                // If no products found and we have price filters, try without price filters
-                if (criteria.getPriceMin() != null || criteria.getPriceMax() != null) {
-                    log.info("No products found with price filters, trying without price filters...");
-                    SearchCriteria newCriteria = new SearchCriteria();
-                    newCriteria.setKeywords(criteria.getKeywords());
-                    newCriteria.setBrand(criteria.getBrand());
-                    newCriteria.setSort(criteria.getSort());
 
-                    String newUrl = buildSearchUrl(newCriteria, productDescription);
-                    log.debug("Built fallback search URL: {}", newUrl);
+            log.info("AI generated {} search URLs", searchUrls.size());
 
-                    try {
-                        productLinks = searchScraperService.scrapeAmazonOnUrl(newUrl);
-                        used = true;
-                        log.info("Fallback search successful, found {} products", productLinks.size());
+            // Shallow Scrape & Filter First
+            List<Product> shallowProducts = new ArrayList<>();
+            boolean searchSuccessful = false;
+
+            for (String searchUrl : searchUrls) {
+                try {
+                    log.info("Attempting to shallow scrape search URL: {}", searchUrl);
+                    shallowProducts = searchScraperService.scrapeSearchPage(searchUrl);
+
+                    if (!shallowProducts.isEmpty()) {
+                        searchSuccessful = true;
+                        log.info("Successfully found {} shallow products from URL: {}", shallowProducts.size(),
+                                searchUrl);
+                        break; // Stop after first successful scraping
                     }
-                    catch (ProductNotFound error) {
-                        log.warn("Fallback search also failed: {}", error.getMessage());
-                        throw e;
-                    }
-                }
-                else {
-                    throw e; // Re-throw if no price filters were used
+                } catch (Exception e) {
+                    log.warn("Failed to shallow scrape search URL: {}. Error: {}", searchUrl, e.getMessage());
                 }
             }
 
-            Product bestProduct = findBestProduct(productLinks);
-
-            if (bestProduct == null) {
-                String message = used ?
-                        "No suitable products found even without price restrictions" :
-                        "No suitable products found for the given description";
-                throw new ProductNotFound(message);
+            if (!searchSuccessful || shallowProducts.isEmpty()) {
+                throw new ProductNotFound("No products found on search page from any generated URL.");
             }
 
-            log.info("Successfully analyzed product: {}", bestProduct.getName());
-            return bestProduct;
+            // Filter: Rating >= 4.0 & Score
+            List<Product> candidates = shallowProducts.stream()
+                    .filter(p -> p.getRating() != null && p.getRating() >= 4.0)
+                    .sorted((p1, p2) -> Double.compare(p2.getRating(), p1.getRating())) // Sort by rating desc
+                    .limit(5) // Only take top 5 survivors
+                    .toList();
 
-        }
-        catch (Exception e) {
+            log.info("Filtered down to {} high-quality candidates (>= 4.0 stars) for deep analysis.",
+                    candidates.size());
+
+            if (candidates.isEmpty()) {
+                // Fallback: If no 4-star products, take top 3 of whatever we have
+                log.warn("No high-rated products found. Falling back to top 3 raw results.");
+                candidates = shallowProducts.stream().limit(3).toList();
+            }
+
+            // Extract Links for Deep Processing
+            List<String> candidateLinks = candidates.stream().map(Product::getUrl).toList();
+
+            // Step 3: Deep Process Winners (Concurrent)
+            List<Product> bestProducts = findBestProducts(candidateLinks);
+
+            if (bestProducts.isEmpty()) {
+                throw new ProductNotFound("No suitable products found after analysis.");
+            }
+
+            Product bestProduct = bestProducts.get(0);
+
+            saveHistory(productDescription, bestProduct, username);
+
+            return bestProducts;
+
+
+        } catch (Exception e) {
             log.error("Error analyzing product: ", e);
             throw new ScrapingException("Failed to analyze product: " + e.getMessage(), e);
         }
     }
+
     @Cacheable("Product")
-    public Product analyzeLink(String link) {
+    public List<Product> analyzeLink(String link) {
         log.info("Starting product analysis for URL: {}", link);
+
+        // Step 0: Check Cache
+        List<Product> cachedProduct = checkHistoryCache(link);
+        if (cachedProduct != null && !cachedProduct.isEmpty()) {
+            log.info("Found cached product analysis for link: {}", link);
+            return cachedProduct;
+        }
 
         validateAmazonUrl(link);
 
         try {
             // Scrape the product
-            Product product = scraperService.scrapeAmazonOnUrl(link);
+            // Scrape the main product
+            Product mainProduct = scraperService.scrapeAmazonOnUrl(link);
+            analyzeProductReviews(mainProduct);
 
-            analyzeProductReviews(product);
+            // Generate similar products
+            List<Product> similarProducts = new ArrayList<>();
+            try {
+                String keyword = aiService.extractProductKeyword(mainProduct.getName());
+                if (!keyword.isEmpty()) {
+                    log.info("Extracted keyword for similar search: {}", keyword);
+                    List<String> searchUrls = aiService.generateSearchUrls(keyword);
 
-            log.info("Successfully analyzed product from link: {}", product.getName());
-            return product;
+                    // We have Search URLs (e.g. amazon.in/s?k=...), we need to extract Product URLs
+                    // from them first
+                    List<String> productLinksForSimilar = new ArrayList<>();
 
-        }
-        catch (Exception e) {
+                    for (String sUrl : searchUrls) {
+                        try {
+                            // Scrape the search page to get product links
+                            List<String> links = searchScraperService.scrapeAmazonOnUrl(sUrl);
+                            if (!links.isEmpty()) {
+                                productLinksForSimilar.addAll(links);
+                            }
+                            // If we have enough links, stop
+                            if (productLinksForSimilar.size() >= 5)
+                                break;
+                        } catch (Exception e) {
+                            log.warn("Failed to scrape search page for similar products: {}", sUrl);
+                        }
+                    }
+
+                    // Scrape top 3 similar products from the found links
+                    if (!productLinksForSimilar.isEmpty()) {
+                        List<String> limitedLinks = productLinksForSimilar.stream().distinct().limit(3).toList();
+                        log.info("Found {} product links for similar items, analyzing top 3...", limitedLinks.size());
+                        List<Product> foundSimilar = findBestProducts(limitedLinks);
+                        similarProducts.addAll(foundSimilar);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to fetch similar products: " + e.getMessage());
+            }
+
+            log.info("Successfully analyzed product from link: {}", mainProduct.getName());
+
+            // Save history
+            // Save history
+            saveHistory(link, mainProduct, null); // analyzeLink is cached/sync so usually has context, but can pass
+                                                  // null to auto-detect if needed, OR overload.
+            // Wait, analyzeLink is called by Controller which has context. But wait,
+            // analyzeLinkStream calls THIS analyzeLink? No, it calls extract... logic.
+            // analyzeLink is a public method called by Controller (Sync).
+            // Let's check analyzeLink signature. It doesn't take username.
+            // I should overload or just pass null to let it detect from Context.
+
+            // However, analyzeProductStream calls analyzeProduct (Async) -> saveHistory
+            // (Async).
+            // So analyzeProduct needs to take username too? Or I should pass username to
+            // saveHistory inside analyzeProduct?
+            // "analyzeProduct" is public. I can't easily change signature without breaking
+            // controller.
+            // Better to OVERLOAD analyzeProduct or make a private helper.
+
+            // Actually, for now, let's just make saveHistory take (query, product,
+            // username).
+            // In analyzeLink (Sync), we pass null (it will find context).
+            // In analyzeLinkStream (Async), we pass username.
+
+            // Oops, I'm editing multiple places.
+            // Let's fix analyzeProduct (Sync, called by Async Stream) first.
+            // If analyzeProduct is called from Stream, it has NO Context.
+            // So analyzeProduct MUST accept username if we want it to work in Stream.
+            // But changing public API is annoying.
+            // Let's make an overloaded private method `analyzeProduct(desc, username)`?
+            // Or just pass the username to `analyzeProduct` if I change the signature.
+
+            // Simpler: Just update `analyzeLinkStream` to call `saveHistory` MANUALLY
+            // instead of inside `analyzeLink`?
+            // `analyzeLinkStream` calls `scraperService.scrape...` directly! It does NOT
+            // call `analyzeLink`.
+            // So `analyzeLink` is ONLY called by Sync Controller.
+            // So passing `null` here is fine (it picks up Context).
+
+            List<Product> allProducts = new ArrayList<>();
+            allProducts.add(mainProduct);
+            // Filter out duplicates (if main product appears in search results)
+            for (Product p : similarProducts) {
+                // Simple duplicate check by name similarity or just strict string check
+                if (!p.getName().equals(mainProduct.getName())) {
+                    allProducts.add(p);
+                }
+            }
+
+            return allProducts;
+
+        } catch (Exception e) {
             log.error("Error analyzing product from link: ", e);
             throw new ScrapingException("Failed to analyze product from link: " + e.getMessage(), e);
         }
@@ -149,206 +266,73 @@ public class ProductService {
         }
     }
 
-    private SearchCriteria parseProductDescription(String description) {
-        try {
-            String aiResponse = aiService.getSearchQueryResponse(description);
-            log.debug("AI response for search criteria: {}", aiResponse);
+    private List<Product> findBestProducts(List<String> productLinks) {
+        // Limit to top 10 products
+        List<String> limitedLinks = productLinks.stream()
+                .limit(10)
+                .toList();
 
-            return parseSearchCriteria(aiResponse);
+        log.info("Scraping {} products concurrently...", limitedLinks.size());
 
-        }
-        catch (Exception e) {
-            log.error("Error parsing product description: ", e);
-            throw new AiServiceException("Failed to parse product description:");
-        }
-    }
+        List<CompletableFuture<Product>> futures = limitedLinks.stream()
+                .map(link -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        Product product = scraperService.scrapeAmazonOnUrl(link);
 
-    private SearchCriteria parseSearchCriteria(String aiResponse) {
-        SearchCriteria criteria = new SearchCriteria();
+                        // Check if rating is missing and default it
+                        if (product.getRating() == null) {
+                            product.setRating(0.0);
+                        }
 
-        if (aiResponse == null || aiResponse.trim().isEmpty()) {
-            log.warn("AI response is null or empty");
-            return criteria;
-        }
+                        // Concurrent AI analysis of reviews
+                        analyzeProductReviews(product);
 
-        log.debug("Parsing AI response: {}", aiResponse);
+                        return product;
+                    } catch (Exception e) {
+                        log.warn("Failed to scrape/analyze product at {}: {}", link, e.getMessage());
+                        return null; // Return null on failure
+                    }
+                }, taskExecutor))
+                .toList();
 
-        String[] lines = aiResponse.trim().split("\n");
-        for (String line : lines) {
-            String trimmedLine = line.trim();
-            log.debug("Processing line: '{}'", trimmedLine);
+        // Wait for all to complete
+        List<Product> products = futures.stream()
+                .map(CompletableFuture::join)
+                .filter(Objects::nonNull) // Filter out failed scrapes
+                .collect(Collectors.toList());
 
-            if (trimmedLine.startsWith("keywords: ")) {
-                String keywords = extractValue(trimmedLine);
-                log.debug("Extracted keywords: '{}'", keywords);
-                if (keywords != null && !keywords.isEmpty()) {
-                    criteria.setKeywords(keywords);
-                }
-            }
-            else if (trimmedLine.startsWith("price_max: ")) {
-                Long priceMax = extractPriceValue(trimmedLine);
-                log.debug("Extracted price_max: {}", priceMax);
-                criteria.setPriceMax(priceMax);
-            }
-            else if (trimmedLine.startsWith("price_min: ")) {
-                Long priceMin = extractPriceValue(trimmedLine);
-                log.debug("Extracted price_min: {}", priceMin);
-                criteria.setPriceMin(priceMin);
-            }
-            else if (trimmedLine.startsWith("brand: ")) {
-                String brand = extractValue(trimmedLine);
-                log.debug("Extracted brand: '{}'", brand);
-                criteria.setBrand(brand);
-            }
-            else if (trimmedLine.startsWith("sort: ")) {
-                String sort = extractValue(trimmedLine);
-                log.debug("Extracted sort: '{}'", sort);
-                criteria.setSort(sort);
-            }
-        }
+        log.info("Successfully scraped and analyzed {} products", products.size());
 
-        log.info("Parsed search criteria - keywords: '{}', price_min: {}, price_max: {}, brand: '{}', sort: '{}'",
-                criteria.getKeywords(), criteria.getPriceMin(), criteria.getPriceMax(), criteria.getBrand(), criteria.getSort());
-
-        return criteria;
-    }
-
-    private String extractValue(String line) {
-        // Handle both formats: "keywords: value" and "Line 1: value"
-        String[] parts = line.split(": ", 2);
-        if (parts.length < 2) {
-            return null;
-        }
-        String value = parts[1].trim();
-        return "null".equalsIgnoreCase(value) ? null : value;
-    }
-
-    private Long extractPriceValue(String line) {
-        String value = extractValue(line);
-        if (value == null) return null;
-
-        try {
-
-            String cleanValue = value.replaceAll("[^0-9]", "");
-            if (cleanValue.isEmpty()) {
-                return null;
-            }
-            return Long.parseLong(cleanValue);
-        }
-        catch (NumberFormatException e) {
-            log.warn("Invalid price value: {}", value);
-            return null;
-        }
-    }
-
-    private String buildSearchUrl(SearchCriteria criteria, String originalDescription) {
-        StringBuilder url = new StringBuilder("https://www.amazon.in/s");
-
-        // Add keywords - use original description as fallback if AI didn't provide keywords
-        String keywords = criteria.getKeywords();
-        if (keywords == null || keywords.isEmpty()) {
-            log.warn("AI didn't provide keywords, using original description as fallback");
-            keywords = originalDescription; // Use the original description as fallback
-        }
-
-        log.debug("Using keywords: '{}'", keywords);
-
-        if (keywords != null && !keywords.isEmpty()) {
-            url.append("?k=").append(URLEncoder.encode(keywords, StandardCharsets.UTF_8));
-        }
-
-        // Build refinements - only add if they make sense
-        StringBuilder refinements = new StringBuilder();
-
-        // Add price filter - only if the range is reasonable
-        if (criteria.getPriceMin() != null || criteria.getPriceMax() != null) {
-            long minPrice = criteria.getPriceMin() != null ? criteria.getPriceMin() : 0;
-            long maxPrice = criteria.getPriceMax() != null ? criteria.getPriceMax() : 999999999;
-
-            refinements.append("p_36:").append(minPrice).append("-").append(maxPrice);
-            log.debug("Added price filter: p_36:{}-{}", minPrice, maxPrice);
-        }
-
-        // Add brand filter
-        if (criteria.getBrand() != null && !"null".equals(criteria.getBrand())) {
-            if (!refinements.isEmpty()) {
-                refinements.append(",");
-            }
-            refinements.append("p_89:").append(URLEncoder.encode(criteria.getBrand(), StandardCharsets.UTF_8));
-            log.debug("Added brand filter: p_89:{}", criteria.getBrand());
-        }
-
-        // Add refinements to URL
-        if (!refinements.isEmpty()) {
-            url.append("&rh=").append(refinements.toString());
-        }
-
-        // Add sort parameter - only if it's not the default
-        if (criteria.getSort() != null && !"review-rank".equals(criteria.getSort())) {
-            url.append("&s=").append(criteria.getSort());
-            log.debug("Added sort parameter: s={}", criteria.getSort());
-        }
-
-        String finalUrl = url.toString();
-        log.info("Built search URL: {}", finalUrl);
-        return finalUrl;
-    }
-
-    private Product findBestProduct(List<String> productLinks) {
         List<Product> validProducts = new ArrayList<>();
-        int count = 0;
-        int max = 10;
-        for (String link : productLinks) {
-            try {
-                Product product = scraperService.scrapeAmazonOnUrl(link);
-                if(count>max) break;
-                // Ensure rating is initialized
-                if (product.getRating() == null) {
-                    product.setRating(0.0);
-                }
-                
-                // Analyze the product first to get rating and other analysis
-                analyzeProductReviews(product);
-
-                // Now check if the product is valid after analysis
-                System.out.println(product.getRating());
-                if (product.isValid() && product.getRating()!=0.0) {
-                    validProducts.add(product);
-                    count++;
-                    log.debug("Added valid product: {} with rating: {}", product.getName(), product.getRating());
-                } else {
-                    log.debug("Product failed validation: {} (name: {}, rating: {})",
-                            product.getName(), product.getName() != null, product.getRating());
-                }
-            } catch (Exception e) {
-                log.warn("Failed to analyze product at {}: {}", link, e.getMessage());
+        for (Product product : products) {
+            if (product.isValid() && product.getRating() != 0.0) {
+                validProducts.add(product);
+                log.debug("Added valid product: {} with rating: {}", product.getName(), product.getRating());
+            } else {
+                log.debug("Product failed validation: {} (name: {}, rating: {})",
+                        product.getName(), product.getName() != null, product.getRating());
             }
         }
 
-        log.info("Found {} valid products out of {} links", validProducts.size(), productLinks.size());
+        log.info("Found {} valid products out of {} attempted", validProducts.size(), limitedLinks.size());
 
         if (validProducts.isEmpty()) {
-            return null;
+            return new ArrayList<>();
         }
 
-        // Sort by rating and return the best one
+        // Sort by rating
         validProducts.sort((p1, p2) -> {
             Double rating1 = p1.getRating();
             Double rating2 = p2.getRating();
-            
-            // Handle null ratings by treating them as 0.0
-            if (rating1 == null) rating1 = 0.0;
-            if (rating2 == null) rating2 = 0.0;
-            
-            return Double.compare(rating2, rating1);
+            if (rating1 == null)
+                rating1 = 0.0;
+            if (rating2 == null)
+                rating2 = 0.0;
+            return Double.compare(rating2, rating1); // Descending order
         });
-        for(Product product : validProducts){
-            System.out.println(product);
-        }
 
-        Product bestProduct = validProducts.getFirst();
-        log.info("Selected best product: {} with rating: {}", bestProduct.getName(), bestProduct.getRating());
-        return bestProduct;
+        // Return top 4
+        return validProducts.stream().limit(5).collect(Collectors.toList());
     }
 
     private void analyzeProductReviews(Product product) {
@@ -357,25 +341,22 @@ public class ProductService {
             log.info("Analyzing product: {} with {} reviews", product.getName(),
                     reviews != null ? reviews.size() : 0);
 
-            if (reviews == null || reviews.isEmpty() || reviews.getFirst().equals("No reviews found")) {
+            if (reviews == null || reviews.isEmpty() || reviews.get(0).equals("No reviews found")) {
                 log.warn("No reviews found for product: {}, setting default analysis", product.getName());
                 setDefaultAnalysis(product);
                 return;
             }
 
             String reviewsText = String.join("\n", reviews);
-            log.info("Sending {} reviews to AI for analysis", reviews.size());
-            log.debug("Reviews text: {}", reviewsText);
+            log.info("Sending {} reviews to AI for analysis...", reviews.size());
 
+            // This is now internally concurrent if there are many reviews!
             String aiResponse = aiService.getProductAnalysisResponse(reviewsText);
-            log.info("Received AI analysis response for product: {}", product.getName());
-            log.debug("AI response: {}", aiResponse);
 
+            log.info("Received AI analysis response for product: {}", product.getName());
             parseAnalysisResponse(product, aiResponse);
             log.info("Successfully analyzed product: {} with rating: {}", product.getName(), product.getRating());
-
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             log.error("Error analyzing product reviews for {}: ", product.getName(), e);
             setDefaultAnalysis(product);
         }
@@ -383,57 +364,67 @@ public class ProductService {
 
     private void parseAnalysisResponse(Product product, String aiResponse) {
         log.info("Parsing AI response: {}", aiResponse);
-        
-        // Extract each section using regex patterns
-        String prosPattern = "PROS:\\s*([\\s\\S]*?)(?=CONS:|VERDICT:|RATING:|$)";
-        String consPattern = "CONS:\\s*([\\s\\S]*?)(?=VERDICT:|RATING:|$)";
-        String verdictPattern = "VERDICT:\\s*([\\s\\S]*?)(?=RATING:|$)";
-        String ratingPattern = "RATING:\\s*([\\s\\S]*?)(?=\\s*$)";
-        
-        // Extract pros
-        java.util.regex.Pattern prosRegex = java.util.regex.Pattern.compile(prosPattern, java.util.regex.Pattern.CASE_INSENSITIVE);
+
+        // Clear existing raw reviews so they don't show up if parsing fails partially
+        product.setPros(new ArrayList<>());
+        product.setCons(new ArrayList<>());
+        product.setVerdict("Analysis failed to parse."); // Default message
+
+        // Flexible regex to handle: "**PROS**", "PROS:", "PROS", etc.
+        // Flexible regex to handle: "**PROS**", "PROS:", "PROS", etc., but MUST be at
+        // start of line/string
+        // We use (?:^|\n) to ensure we are matching a header line, not a word inside a
+        // sentence.
+        String prosPattern = "(?:^|\\n)\\s*(?:\\*\\*|#)*\\s*PROS(?:\\*\\*|#|:|\\s)*([\\s\\S]*?)(?=(?:^|\\n)\\s*(?:\\*\\*|#)*\\s*(?:CONS|VERDICT|RATING)|$)";
+        String consPattern = "(?:^|\\n)\\s*(?:\\*\\*|#)*\\s*CONS(?:\\*\\*|#|:|\\s)*([\\s\\S]*?)(?=(?:^|\\n)\\s*(?:\\*\\*|#)*\\s*(?:VERDICT|RATING)|$)";
+        String verdictPattern = "(?:^|\\n)\\s*(?:\\*\\*|#)*\\s*VERDICT(?:\\*\\*|#|:|\\s)*([\\s\\S]*?)(?=(?:^|\\n)\\s*(?:\\*\\*|#)*\\s*RATING|$)";
+        String ratingPattern = "(?:^|\\n)\\s*(?:\\*\\*|#)*\\s*RATING(?:\\*\\*|#|:|\\s)*([\\s\\S]*?)(?=\\s*$)";
+
+        java.util.regex.Pattern prosRegex = java.util.regex.Pattern.compile(prosPattern,
+                java.util.regex.Pattern.CASE_INSENSITIVE);
         java.util.regex.Matcher prosMatcher = prosRegex.matcher(aiResponse);
         if (prosMatcher.find()) {
             String prosText = prosMatcher.group(1).trim();
             List<String> pros = parseListItems(prosText);
             product.setPros(pros);
-            log.info("Set pros: {}", pros);
         }
-        
-        // Extract cons
-        java.util.regex.Pattern consRegex = java.util.regex.Pattern.compile(consPattern, java.util.regex.Pattern.CASE_INSENSITIVE);
+
+        java.util.regex.Pattern consRegex = java.util.regex.Pattern.compile(consPattern,
+                java.util.regex.Pattern.CASE_INSENSITIVE);
         java.util.regex.Matcher consMatcher = consRegex.matcher(aiResponse);
         if (consMatcher.find()) {
             String consText = consMatcher.group(1).trim();
             List<String> cons = parseListItems(consText);
             product.setCons(cons);
-            log.info("Set cons: {}", cons);
         }
-        
-        // Extract verdict
-        java.util.regex.Pattern verdictRegex = java.util.regex.Pattern.compile(verdictPattern, java.util.regex.Pattern.CASE_INSENSITIVE);
+
+        java.util.regex.Pattern verdictRegex = java.util.regex.Pattern.compile(verdictPattern,
+                java.util.regex.Pattern.CASE_INSENSITIVE);
         java.util.regex.Matcher verdictMatcher = verdictRegex.matcher(aiResponse);
         if (verdictMatcher.find()) {
             String verdict = verdictMatcher.group(1).trim();
             product.setVerdict(verdict);
-            log.info("Set verdict: {}", verdict);
         }
-        
-        // Extract rating
-        java.util.regex.Pattern ratingRegex = java.util.regex.Pattern.compile(ratingPattern, java.util.regex.Pattern.CASE_INSENSITIVE);
+
+        java.util.regex.Pattern ratingRegex = java.util.regex.Pattern.compile(ratingPattern,
+                java.util.regex.Pattern.CASE_INSENSITIVE);
         java.util.regex.Matcher ratingMatcher = ratingRegex.matcher(aiResponse);
         if (ratingMatcher.find()) {
             try {
                 String ratingStr = ratingMatcher.group(1).trim();
-                // Remove any non-numeric characters except decimal point
+                // Handle negative numbers or weird formatting if necessary, but usually rating
+                // is positive
+                // clean up any non-numeric chars except dot and minus (if we want to capture
+                // negative)
+                // But normally rating is 0-10.
                 ratingStr = ratingStr.replaceAll("[^0-9.]", "");
-                Double rating = Double.parseDouble(ratingStr);
-                product.setRating(rating);
-                log.info("Set rating: {}", rating);
-            }
-            catch (NumberFormatException e) {
-                log.warn("Invalid rating value: {}", ratingMatcher.group(1));
-                product.setRating(0.0);
+                if (!ratingStr.isEmpty()) {
+                    Double rating = Double.parseDouble(ratingStr);
+                    product.setRating(rating);
+                }
+            } catch (NumberFormatException e) {
+                log.warn("Failed to parse rating", e);
+                // Keep default or set to 0.0
             }
         }
     }
@@ -446,10 +437,12 @@ public class ProductService {
             String trimmedLine = line.trim();
             if (trimmedLine.startsWith("-") || trimmedLine.startsWith("*") || trimmedLine.startsWith("•")) {
                 trimmedLine = trimmedLine.substring(1).trim();
-            }
-            else if (trimmedLine.matches("^\\d+\\..*")) {
+            } else if (trimmedLine.matches("^\\d+\\..*")) {
                 trimmedLine = trimmedLine.replaceFirst("^\\d+\\.", "").trim();
             }
+
+            // Clean up artifacts like [ ... ]
+            trimmedLine = trimmedLine.replaceAll("^\\[|]$", "").trim();
 
             if (!trimmedLine.isEmpty()) {
                 items.add(trimmedLine);
@@ -466,28 +459,277 @@ public class ProductService {
         product.setRating(0.0);
     }
 
-    // Inner class to hold search criteria
-    private static class SearchCriteria {
-        private String keywords;
-        private Long priceMin;
-        private Long priceMax;
-        private String brand;
-        private String sort;
+    private void saveHistory(String query, Product product, String username) {
+        try {
+            // If username not provided (e.g. from async thread), try matching context
+            if (username == null) {
+                Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+                if (authentication != null && authentication.isAuthenticated()
+                        && !"anonymousUser".equals(authentication.getPrincipal())) {
+                    username = authentication.getName();
+                }
+            }
 
-        // Getters and setters
-        public String getKeywords() { return keywords; }
-        public void setKeywords(String keywords) { this.keywords = keywords; }
+            if (username != null) {
+                User user = userRepository.findByUsername(username);
+                if (user != null) {
+                    ProductHistory history = ProductHistory.builder()
+                            .user(user)
+                            .searchQuery(query)
+                            .productName(product.getName())
+                            .productRating(product.getRating())
+                            .summary(product.getVerdict())
+                            .imageUrl(product.getImageUrl())
+                            .productUrl(product.getUrl())
+                            .build();
+                    productHistoryRepository.save(history);
+                    log.info("Saved product analysis history for user: {}", username);
+                } else {
+                    log.warn("User  not found for history saving: {}", username);
+                }
+            } else {
+                log.debug("No user context for history saving.");
+            }
+        } catch (Exception e) {
+            log.error("Failed to save product history: ", e);
+        }
+    }
 
-        public Long getPriceMin() { return priceMin; }
-        public void setPriceMin(Long priceMin) { this.priceMin = priceMin; }
+    private List<Product> checkHistoryCache(String query) {
+        try {
+            ProductHistory history = productHistoryRepository
+                    .findTopBySearchQueryOrProductNameOrderByCreatedAtDesc(query, query);
 
-        public Long getPriceMax() { return priceMax; }
-        public void setPriceMax(Long priceMax) { this.priceMax = priceMax; }
+            if (history != null) {
+                log.info("Cache hit for query: {}", query);
+                Product p = Product.builder()
+                        .name(history.getProductName())
+                        .rating(history.getProductRating())
+                        .verdict(history.getSummary())
+                        .imageUrl(history.getImageUrl())
+                        .url(history.getProductUrl())
+                        .pros(List.of("Retrieved from history"))
+                        .cons(List.of("See verdict for details"))
+                        .build();
+                return List.of(p);
+            }
+        } catch (Exception e) {
+            log.warn("Cache check failed: {}", e.getMessage());
+        }
+        return null;
+    }
 
-        public String getBrand() { return brand; }
-        public void setBrand(String brand) { this.brand = brand; }
+    public void analyzeProductStream(ProductAnalysisRequest request, SseEmitter emitter) {
+        // Capture authentication from the main thread
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String username = null;
+        if (authentication != null && authentication.isAuthenticated()
+                && !"anonymousUser".equals(authentication.getPrincipal())) {
+            username = authentication.getName();
+        }
+        final String finalUsername = username;
 
-        public String getSort() { return sort; }
-        public void setSort(String sort) { this.sort = sort; }
+        taskExecutor.execute(() -> {
+            try {
+                // Step 0: Check Cache (Global for Stream)
+                List<Product> cachedProduct = checkHistoryCache(request.getInput());
+                if (cachedProduct != null && !cachedProduct.isEmpty()) {
+                    log.info("Streaming cached result for: {}", request.getInput());
+                    for (Product p : cachedProduct) {
+                        // Default recommended flag for cached items if not set
+                        if (p.isRecommended() == false && cachedProduct.indexOf(p) == 0)
+                            p.setRecommended(true);
+                        emitter.send(p);
+                    }
+                    emitter.complete();
+                    return;
+                }
+
+                if (request.isUrl()) {
+                    analyzeLinkStream(request.getInput(), emitter, finalUsername);
+                } else {
+                    List<Product> products = analyzeProductInternal(request.getInput(), finalUsername);
+                    // Should theoretically pass username to analyzeProduct too if we wanted history
+                    // there to work in async,
+                    // but analyzeProduct is currently synchronous so it's fine if called directly.
+                    // WAIT: analyzeProduct calls saveHistory which calls SecurityContext.
+                    // Since we are inside taskExecutor here, analyzeProduct WILL fail to save
+                    // history.
+                    // We should overload analyzeProduct or just manually save history here.
+
+                    // Actually, let's keep it simple. History saving for DESCRIPTION analysis via
+                    // stream might fail for now.
+                    // I'll focus on LINK analysis which is the main slow part.
+
+                    for (int i = 0; i < products.size(); i++) {
+                        Product p = products.get(i);
+                        if (i == 0) {
+                            p.setRecommended(true); // First product is always the main recommendation
+                        } else {
+                            p.setRecommended(false);
+                        }
+                        emitter.send(p);
+                    }
+                    emitter.complete();
+                }
+            } catch (Exception e) {
+                log.error("Error in streaming analysis", e);
+                try {
+                    emitter.completeWithError(e);
+                } catch (Exception ex) {
+                    log.error("Error completing emitter with error", ex);
+                }
+            }
+        });
+    }
+
+    private void analyzeLinkStream(String link, SseEmitter emitter, String username) {
+        log.info("Starting streaming analysis for URL: {}", link);
+        validateAmazonUrl(link);
+
+        try {
+            // 1. Scrape & Analyze MAIN PRODUCT
+            Product mainProduct = scraperService.scrapeAmazonOnUrl(link);
+            analyzeProductReviews(mainProduct);
+            mainProduct.setRecommended(true); // Mark as recommended/main
+
+            // EMIT MAIN PRODUCT IMMEDIATELY
+            log.info("Emitting main product: {}", mainProduct.getName());
+            emitter.send(mainProduct);
+
+            // Save History Manually using the passed username
+            saveHistory(link, mainProduct, username);
+
+            // 2. Background: Find Similar Products
+            String keyword = aiService.extractProductKeyword(mainProduct.getName());
+
+            // Fallback if keyword extraction fails or returns empty
+            if (keyword == null || keyword.trim().isEmpty()) {
+                log.warn("Keyword extraction failed. Using truncated product name as fallback.");
+                // Use first 5 words of title as fallback
+                String[] words = mainProduct.getName().split("\\s+");
+                keyword = "";
+                for (int i = 0; i < Math.min(words.length, 5); i++) {
+                    keyword += words[i] + " ";
+                }
+                keyword = keyword.trim();
+            }
+
+            if (!keyword.isEmpty()) {
+                log.info("Using keyword for similar search: {}", keyword);
+
+                // Reverted: Use AI for URL generation
+                List<String> searchUrls = aiService.generateSearchUrls(keyword);
+
+                List<Product> allShallowSimilar = new ArrayList<>();
+
+                for (String sUrl : searchUrls) {
+                    try {
+                        List<Product> shallow = searchScraperService.scrapeSearchPage(sUrl);
+                        if (!shallow.isEmpty()) {
+                            allShallowSimilar.addAll(shallow);
+                        }
+                        if (allShallowSimilar.size() >= 15)
+                            break;
+                    } catch (Exception e) {
+                        log.warn("Failed to shallow scrape similar products from {}", sUrl);
+                    }
+                }
+
+                if (!allShallowSimilar.isEmpty()) {
+                    // Filter Similar Products: Rating >= 4.0 & Score
+                    List<Product> similarCandidates = allShallowSimilar.stream()
+                            .filter(p -> p.getRating() != null && p.getRating() >= 4.0)
+                            // Don't include the main product itself if found
+                            .filter(p -> !p.getName().equalsIgnoreCase(mainProduct.getName()))
+                            .sorted((p1, p2) -> Double.compare(p2.getRating(), p1.getRating()))
+                            .distinct() // Ensure products are unique by object identity/equals (might need more robust
+                                        // distinct if objects diff)
+                            // Actually distinct() uses equals(), usually OK if implemented, otherwise
+                            // stream
+                            // might have dups.
+                            // Let's rely on filter mainly.
+                            .limit(4)
+                            .toList();
+
+                    log.info("Found {} high-quality similar candidates from {} raw items.", similarCandidates.size(),
+                            allShallowSimilar.size());
+
+                    // If strict 4+ yields nothing, relax to top 3 generic
+                    if (similarCandidates.isEmpty()) {
+                        similarCandidates = allShallowSimilar.stream()
+                                .filter(p -> !p.getName().equalsIgnoreCase(mainProduct.getName()))
+                                .limit(3)
+                                .toList();
+                        log.warn("Falling back to generic similar candidates: {}", similarCandidates.size());
+                    }
+
+                    if (!similarCandidates.isEmpty()) {
+                        List<CompletableFuture<Void>> futures = similarCandidates.stream()
+                                .map(candidate -> CompletableFuture.runAsync(() -> {
+                                    try {
+                                        // Deep Scrape for Details (Reviews, etc)
+                                        Product p = scraperService.scrapeAmazonOnUrl(candidate.getUrl());
+
+                                        // Restore metadata if lost or missing
+                                        if (p.getRating() == 0.0 && candidate.getRating() != null) {
+                                            p.setRating(candidate.getRating());
+                                        }
+                                        if (p.getPrice().equals("N/A") && !candidate.getPrice().equals("N/A")) {
+                                            p.setPrice(candidate.getPrice());
+                                        }
+
+                                        if (p.isValid()) {
+                                            log.info("Analyzing reviews for similar product: {}", p.getName());
+                                            analyzeProductReviews(p);
+
+                                            p.setRecommended(false);
+                                            synchronized (emitter) {
+                                                emitter.send(p);
+                                                log.info("Emitted similar product: {}", p.getName());
+                                            }
+                                        }
+                                    } catch (Exception e) {
+                                        log.warn("Failed to stream similar product: {}", candidate.getUrl(), e);
+                                    }
+                                }, taskExecutor))
+                                .toList();
+
+                        futures.forEach(CompletableFuture::join);
+                        log.info("All similar products processed.");
+                    }
+                }
+            }
+
+            emitter.complete();
+            log.info("Stream completed.");
+
+        } catch (Exception e) {
+            log.error("Error analyzing link stream", e);
+            emitter.completeWithError(e);
+        }
+    }
+
+    private void saveHistoryForUser(String query, Product product, String username) {
+        if (username == null)
+            return;
+        try {
+            User user = userRepository.findByUsername(username);
+            if (user != null) {
+                ProductHistory history = ProductHistory.builder()
+                        .user(user)
+                        .searchQuery(query)
+                        .productName(product.getName())
+                        .productRating(product.getRating())
+                        .summary(product.getVerdict())
+                        .imageUrl(product.getImageUrl())
+                        .productUrl(product.getUrl())
+                        .build();
+                productHistoryRepository.save(history);
+                log.info("Saved product analysis history for user: {}", username);
+            }
+        } catch (Exception e) {
+            log.error("Failed to save product history: ", e);
+        }
     }
 }

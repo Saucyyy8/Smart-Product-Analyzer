@@ -1,5 +1,6 @@
-import { TrendingUp, ShieldCheck, Zap, Search, LogOut } from "lucide-react";
+import { TrendingUp, ShieldCheck, Zap, Search, LogOut, LayoutDashboard } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useNavigate } from "react-router-dom";
 
 interface HeroSectionProps {
   username: string | null;
@@ -7,6 +8,7 @@ interface HeroSectionProps {
 }
 
 const HeroSection = ({ username, logout }: HeroSectionProps) => {
+  const navigate = useNavigate();
   const scrollToSearch = () => {
     const searchSection = document.getElementById('search-section');
     searchSection?.scrollIntoView({ behavior: 'smooth' });
@@ -18,20 +20,34 @@ const HeroSection = ({ username, logout }: HeroSectionProps) => {
       <div className="absolute inset-0 bg-grid-pattern opacity-5" />
 
       {/* User Info and Logout */}
-      {username && (
-        <div className="absolute top-4 right-4 z-10">
+      {/* User Info and Logout */}
+      <div className="absolute top-4 right-4 z-10">
+        {username ? (
           <div className="flex items-center gap-4">
-            <span className="text-sm font-medium text-muted-foreground">
+            <span className="text-sm font-medium text-muted-foreground hidden sm:inline-block">
               Welcome, <span className="font-bold text-foreground">{username}</span>
             </span>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/dashboard")}>
+              <LayoutDashboard className="w-4 h-4 mr-2" />
+              Dashboard
+            </Button>
             <Button variant="outline" size="sm" onClick={logout}>
               <LogOut className="w-4 h-4 mr-2" />
               Logout
             </Button>
           </div>
-        </div>
-      )}
-      
+        ) : (
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="sm" onClick={() => navigate("/login")}>
+              Login
+            </Button>
+            <Button variant="default" size="sm" onClick={() => navigate("/register")}>
+              Register
+            </Button>
+          </div>
+        )}
+      </div>
+
       <div className="container mx-auto px-4 py-20 lg:py-32">
         <div className="text-center max-w-4xl mx-auto">
           {/* Badge */}
@@ -51,14 +67,14 @@ const HeroSection = ({ username, logout }: HeroSectionProps) => {
 
           {/* Subtitle */}
           <p className="text-xl md:text-2xl text-muted-foreground mb-12 max-w-3xl mx-auto leading-relaxed">
-            Enter a product URL or description, and get intelligent analysis with pros, cons, 
+            Enter a product URL or description, and get intelligent analysis with pros, cons,
             and personalized recommendations from top Amazon results.
           </p>
 
           {/* CTA Buttons */}
           <div className="flex flex-col sm:flex-row gap-4 justify-center mb-16">
-            <Button 
-              variant="hero" 
+            <Button
+              variant="hero"
               size="lg"
               onClick={scrollToSearch}
               className="glow-primary"

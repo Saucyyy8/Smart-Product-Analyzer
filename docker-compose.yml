@@ -1,14 +1,4 @@
 services:
-  frontend:
-    build:
-      context: ./frontend
-    ports:
-      - "3000:80"
-    depends_on:
-      - backend
-    networks:
-      - app-network
-
   backend:
     build:
       context: ./backend
@@ -54,19 +44,9 @@ services:
     networks:
       - app-network
 
-  ollama:
-    build: ./ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama-data:/root/.ollama
-    networks:
-      - app-network
-
 networks:
   app-network:
     driver: bridge
 
 volumes:
   db-data:
-  ollama-data:

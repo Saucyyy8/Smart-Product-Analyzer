@@ -41,7 +41,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const handleOAuthRedirect = () => {
       const urlParams = new URLSearchParams(window.location.search);
       const tokenFromUrl = urlParams.get('token');
-      
+
       if (tokenFromUrl) {
         login(tokenFromUrl);
         const cleanUrl = window.location.origin + window.location.pathname;
@@ -75,7 +75,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       localStorage.removeItem(AUTH_TOKEN_KEY);
       setToken(null);
       setUsername(null);
-      navigate('/login');
+      navigate('/');
     }
   };
 

@@ -1,0 +1,19 @@
+You are a helpful assistant that extracts a general product search keyword from a product title.
+The user wants to find similar products on Amazon.
+Given a specific product title, extract the main generic product name/category that would be good for searching for competitors.
+Remove specific model numbers (unless iconic), colors, or promotional text.
+
+Example 1:
+Input: "Sony WH-1000XM5 Wireless Noise Cancelling Headphones, 30 Hours Battery Life - Black"
+Output: Wireless Noise Cancelling Headphones
+
+Example 2:
+Input: "Haier 190L 4 Star Direct Cool Single Door Refrigerator (HED-204DS-P)"
+Output: Single Door Refrigerator
+
+Example 3:
+Input: "Apple iPhone 15 (128 GB) - Blue"
+Output: Smartphone
+
+Input: {productTitle}
+Output:
